@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="en"> 
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SmartNotes</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+:root{
+  --bg:#0f0e0b; --panel:#14130f; --line:#d4af37; --line-dim:rgba(212,175,55,.35);
+  --text:#e9e3d2; --muted:#9a916f; --font:'PingFang TC','PingFang SC',-apple-system,sans-serif;
+  --size:12px; --indent:18px; --cardw:560px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:var(--size);line-height:1.35}
+body{padding:10px 14px 96px}
+
+/* ---------- header ---------- */
+#hdr{display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--line-dim);padding:2px 0 6px;margin-bottom:8px}
+#appTitle{font-size:calc(var(--size) + 4px);letter-spacing:.12em;color:var(--line);outline:none;font-weight:600}
+#hdr .spacer{flex:1}
+#dot{width:9px;height:9px;border-radius:50%;background:#3aa35a;box-shadow:0 0 6px 1px rgba(58,163,90,.5);transition:all .3s}
+#dot.gold{background:var(--line);box-shadow:0 0 6px 1px var(--line-dim)}
+#dot.red{background:#c0453a;box-shadow:0 0 6px 1px rgba(192,69,58,.5)}
+.iconbtn{background:none;border:1px solid transparent;color:var(--muted);cursor:pointer;font-size:var(--size);padding:1px 5px;border-radius:4px;line-height:1.2}
+.iconbtn:hover{color:var(--line);border-color:var(--line-dim)}
+
+/* ---------- tree ---------- */
+#tree{max-width:900px}
+.node{position:relative}
+.row{display:flex;align-items:center;gap:5px;padding:1px 2px;border-radius:4px;min-height:19px}
+.row.dragover-into{outline:1px solid var(--line)}
+.row.dragover-before{box-shadow:0 -1px 0 0 var(--line)}
+.row.dragover-after{box-shadow:0 1px 0 0 var(--line)}
+.children{margin-left:var(--indent);border-left:1px solid rgba(212,175,55,.14);padding-left:6px}
+.bullet{width:14px;height:14px;flex:none;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.bullet i{width:6px;height:6px;border-radius:50%;background:var(--line);display:block;transition:box-shadow .2s}
+.bullet.halo i{box-shadow:0 0 0 3px rgba(212,175,55,.16),0 0 7px 2px rgba(212,175,55,.45)}
+.name{outline:none;min-width:24px;padding:0 3px;border-radius:3px;white-space:pre-wrap}
+.name:focus{background:rgba(212,175,55,.08)}
+.folder>.row>.name{font-weight:600;letter-spacing:.05em}
+.tools{display:flex;gap:2px;opacity:0;transition:opacity .15s;margin-left:2px}
+.row:hover .tools{opacity:1}
+.tools button{background:none;border:none;color:var(--muted);cursor:pointer;font-size:calc(var(--size) - 1px);padding:0 3px;border-radius:3px;line-height:1.3}
+.tools button:hover{color:var(--line);background:rgba(212,175,55,.1)}
+
+/* ---------- article card ---------- */
+.cardbody{max-width:var(--cardw);border:1px solid var(--line-dim);border-radius:7px;margin:2px 0 4px 20px;padding:5px 8px;position:relative;background:var(--panel)}
+.rt{outline:none;min-height:16px}
+.rt, .rt *{font-size:var(--size) !important}
+.rt ul{margin-left:var(--indent)}
+.rt li{margin:0}
+.fmt{position:absolute;top:-11px;right:6px;display:flex;gap:1px;background:var(--panel);border:1px solid var(--line-dim);border-radius:5px;padding:0 2px;opacity:0;transition:opacity .15s}
+.cardbody:hover .fmt{opacity:1}
+.fmt button{background:none;border:none;color:var(--muted);cursor:pointer;font-size:calc(var(--size) - 1px);padding:1px 4px}
+.fmt button:hover{color:var(--line)}
+
+/* ---------- palette ---------- */
+#palette{position:absolute;z-index:50;display:none;grid-template-columns:repeat(9,14px);gap:2px;background:var(--panel);border:1px solid var(--line-dim);border-radius:6px;padding:5px}
+#palette span{width:14px;height:14px;border-radius:3px;cursor:pointer;display:block}
+#palette span:hover{outline:1px solid #fff}
+
+/* ---------- control panel ---------- */
+#ctlToggle{position:fixed;right:12px;bottom:10px;z-index:40;background:var(--panel);border:1px solid var(--line-dim);color:var(--line);border-radius:6px;padding:2px 8px;cursor:pointer;font-size:var(--size)}
+#ctl{position:fixed;left:0;right:0;bottom:0;background:var(--panel);border-top:1px solid var(--line-dim);padding:5px 12px 8px;z-index:30;display:flex;flex-direction:column;gap:4px}
+#ctl.hidden{display:none}
+#ctl .crow{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+#ctl button,#ctl select{background:var(--bg);border:1px solid var(--line-dim);color:var(--text);border-radius:5px;padding:1px 7px;font-size:var(--size);cursor:pointer;font-family:var(--font)}
+#ctl button:hover{border-color:var(--line);color:var(--line)}
+#ctl .lbl{color:var(--muted)}
+
+/* ---------- modal ---------- */
+#modal{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;z-index:60}
+#modal .box{background:var(--panel);border:1px solid var(--line);border-radius:8px;min-width:300px;max-width:70vw;max-height:70vh;overflow:auto;padding:10px 14px}
+#modal h3{color:var(--line);font-size:var(--size);letter-spacing:.1em;margin-bottom:6px}
+#modal .item{padding:3px 5px;border-radius:4px;cursor:pointer;display:flex;gap:10px;justify-content:space-between}
+#modal .item:hover{background:rgba(212,175,55,.1)}
+#modal .item small{color:var(--muted)}
+</style>
+</head>
+<body>
+
+<div id="hdr">
+  <span id="appTitle" contenteditable="plaintext-only" spellcheck="false">SmartNotes</span>
+  <span class="spacer"></span>
+  <button class="iconbtn" id="btnFiles" title="Supabase 檔案清單">☁ 檔案</button>
+  <span id="dot" class="gold" title="sync status"></span>
+</div>
+
+<div id="tree"></div>
+
+<div id="palette"></div>
+
+<button id="ctlToggle">控制 ▾</button>
+<div id="ctl">
+  <div class="crow">
+    <button id="btnExportJson">匯出 JSON</button>
+    <button id="btnImportJson">匯入 JSON</button>
+    <button id="btnExportMd">匯出文字 (Markdown)</button>
+    <button id="btnExportHtml">匯出 HTML</button>
+    <button id="btnExportOkf">匯出 OKF 套件</button>
+    <button id="btnReset">重設</button>
+    <input type="file" id="fileInput" accept=".json,application/json" style="display:none">
+  </div>
+  <div class="crow">
+    <span class="lbl">字型</span>
+    <select id="selFont">
+      <option>PingFang TC</option><option>Heiti TC</option><option>Songti TC</option>
+      <option>Kaiti TC</option><option>system-ui</option><option>Georgia</option><option>Menlo</option>
+    </select>
+    <span class="lbl">字號</span>
+    <select id="selSize"><option>10</option><option>11</option><option selected>12</option><option>13</option><option>14</option><option>16</option></select>
+    <span class="lbl">縮排</span>
+    <select id="selIndent"><option>12</option><option selected>18</option><option>24</option><option>32</option></select>
+    <span class="lbl">邊框色</span>
+    <button id="btnBorder" style="width:40px">&nbsp;</button>
+    <span class="lbl">卡片寬度</span>
+    <select id="selCardW"><option>420</option><option selected>560</option><option>720</option><option>900</option><option value="9999">全寬</option></select>
+  </div>
+  <div class="crow">
+    <span class="lbl">層級</span>
+    <button data-exp="1" title="展開 1 層">▸¹</button>
+    <button data-exp="2" title="展開 2 層">▸²</button>
+    <button data-exp="3" title="展開 3 層">▸³</button>
+    <button data-exp="99" title="展開全部">▸∞</button>
+    <button data-exp="0" title="收合全部">▾✕</button>
+  </div>
+</div>
+
+<div id="modal"><div class="box"><h3>SUPABASE 檔案清單</h3><div id="fileList"></div></div></div>
+
+<script>
+/* ================= config ================= */
+const SB_URL = "https://bxeraximugvvpkpaejdn.supabase.co";
+const SB_KEY = "sb_publishable_i8jvS_ivsLBzYwb2HAKk1Q_d4DtCHjX";
+const SB_TABLE = "smartnotes";
+const SB_HEADERS = { "apikey": SB_KEY, "Authorization": "Bearer " + SB_KEY, "Content-Type": "application/json" };
+
+/* ================= state ================= */
+const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now() + "-" + Math.random().toString(16).slice(2));
+function freshState() {
+  return {
+    docId: uid(),
+    appTitle: "SmartNotes",
+    root: { id: uid(), type: "folder", name: "TITLE", collapsed: false, color: null, children: [] },
+    settings: { font: "PingFang TC", size: 12, indent: 18, line: "#d4af37", cardw: 560 }
+  };
+}
+let state = freshState();
+
+/* ================= helpers ================= */
+function findNode(id, node = state.root) {
+  if (node.id === id) return node;
+  for (const c of node.children || []) { const r = findNode(id, c); if (r) return r; }
+  return null;
+}
+function findParent(id, node = state.root) {
+  for (const c of node.children || []) {
+    if (c.id === id) return node;
+    const r = findParent(id, c); if (r) return r;
+  }
+  return null;
+}
+function isDescendant(ancestorId, id) {
+  const a = findNode(ancestorId);
+  if (!a) return false;
+  const walk = n => n.id === id || (n.children || []).some(walk);
+  return (a.children || []).some(walk);
+}
+const esc = s => (s || "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const dateStr = () => { const d = new Date(); return d.getFullYear() + String(d.getMonth() + 1).padStart(2, "0") + String(d.getDate()).padStart(2, "0"); };
+const fileBase = () => (state.root.name || "SmartNotes").trim() + " " + dateStr();
+
+/* ================= palette (2D: hues x lightness) ================= */
+const HUES = [0, 25, 45, 90, 150, 175, 210, 265, 320];   // red orange yellow green turquoise cyan blue purple pink
+const LIGHT = [72, 62, 52, 42];
+const paletteEl = document.getElementById("palette");
+let paletteCb = null;
+(function buildPalette() {
+  for (const l of LIGHT) for (const h of HUES) {
+    const s = document.createElement("span");
+    s.style.background = `hsl(${h} 85% ${l}%)`;
+    s.dataset.c = `hsl(${h} 85% ${l}%)`;
+    paletteEl.appendChild(s);
+  }
+  const w = document.createElement("span"); w.style.background = "#e9e3d2"; w.dataset.c = "#e9e3d2"; paletteEl.appendChild(w);
+  paletteEl.addEventListener("mousedown", e => e.preventDefault()); // keep selection
+  paletteEl.addEventListener("click", e => {
+    if (e.target.dataset.c && paletteCb) paletteCb(e.target.dataset.c);
+    hidePalette();
+  });
+})();
+function showPalette(anchor, cb) {
+  paletteCb = cb;
+  const r = anchor.getBoundingClientRect();
+  paletteEl.style.display = "grid";
+  paletteEl.style.left = Math.min(r.left, innerWidth - 170) + "px";
+  paletteEl.style.top = (r.bottom + scrollY + 4) + "px";
+}
+function hidePalette() { paletteEl.style.display = "none"; paletteCb = null; }
+document.addEventListener("click", e => { if (!paletteEl.contains(e.target) && !e.target.closest("[data-pal]")) hidePalette(); });
+
+/* ================= render ================= */
+const treeEl = document.getElementById("tree");
+function render() {
+  treeEl.innerHTML = "";
+  treeEl.appendChild(renderNode(state.root, true));
+  applySettings();
+}
+function renderNode(node, isRoot = false) {
+  const wrap = document.createElement("div");
+  wrap.className = "node " + node.type;
+  wrap.dataset.id = node.id;
+
+  const row = document.createElement("div");
+  row.className = "row";
+  row.draggable = !isRoot;
+
+  const hasInner = node.type === "folder" ? (node.children || []).length > 0 : true;
+  const b = document.createElement("span");
+  b.className = "bullet" + (node.collapsed && hasInner ? " halo" : "");
+  b.innerHTML = "<i></i>";
+  b.title = node.collapsed ? "expand" : "collapse";
+  b.onclick = () => { node.collapsed = !node.collapsed; render(); touch(); };
+  row.appendChild(b);
+
+  const name = document.createElement("span");
+  name.className = "name";
+  name.contentEditable = "plaintext-only";
+  name.spellcheck = false;
+  name.textContent = node.name;
+  if (node.color) name.style.color = node.color;
+  name.addEventListener("input", () => { node.name = name.textContent; touch(); });
+  name.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); name.blur(); } });
+  row.appendChild(name);
+
+  const tools = document.createElement("span");
+  tools.className = "tools";
+  const mk = (txt, title, fn) => { const x = document.createElement("button"); x.textContent = txt; x.title = title; x.onclick = fn; return x; };
+  if (node.type === "folder") {
+    tools.appendChild(mk("▣", "新增子資料夾 add folder", () => {
+      node.children.push({ id: uid(), type: "folder", name: "FOLDER", collapsed: false, color: null, children: [] });
+      node.collapsed = false; render(); touch();
+    }));
+    tools.appendChild(mk("✎", "新增文章卡 add article", () => {
+      node.children.push({ id: uid(), type: "article", name: "ARTICLE", collapsed: false, color: null, content: "", children: [] });
+      node.collapsed = false; render(); touch();
+    }));
+  }
+  const palBtn = mk("◩", "標題顏色 title colour", function (e) {
+    e.stopPropagation();
+    showPalette(this, c => { node.color = c; render(); touch(); });
+  });
+  palBtn.dataset.pal = "1";
+  tools.appendChild(palBtn);
+  if (!isRoot) tools.appendChild(mk("✕", "刪除 delete", () => {
+    const p = findParent(node.id);
+    p.children = p.children.filter(c => c.id !== node.id);
+    render(); touch();
+  }));
+  row.appendChild(tools);
+  wrap.appendChild(row);
+
+  /* drag & drop */
+  if (!isRoot) row.addEventListener("dragstart", e => { e.dataTransfer.setData("text/plain", node.id); e.stopPropagation(); });
+  row.addEventListener("dragover", e => {
+    e.preventDefault(); e.stopPropagation();
+    const r = row.getBoundingClientRect(), y = e.clientY - r.top;
+    row.classList.remove("dragover-into", "dragover-before", "dragover-after");
+    if (node.type === "folder" && y > r.height * .3 && y < r.height * .7) row.classList.add("dragover-into");
+    else if (y < r.height / 2) row.classList.add("dragover-before");
+    else row.classList.add("dragover-after");
+  });
+  row.addEventListener("dragleave", () => row.classList.remove("dragover-into", "dragover-before", "dragover-after"));
+  row.addEventListener("drop", e => {
+    e.preventDefault(); e.stopPropagation();
+    const mode = row.classList.contains("dragover-into") ? "into" : row.classList.contains("dragover-before") ? "before" : "after";
+    row.classList.remove("dragover-into", "dragover-before", "dragover-after");
+    const dragId = e.dataTransfer.getData("text/plain");
+    if (!dragId || dragId === node.id || isDescendant(dragId, node.id)) return;
+    const dragNode = findNode(dragId); if (!dragNode) return;
+    const oldP = findParent(dragId);
+    oldP.children = oldP.children.filter(c => c.id !== dragId);
+    if (mode === "into" && node.type === "folder") { node.children.push(dragNode); node.collapsed = false; }
+    else if (isRoot) { state.root.children.unshift(dragNode); }
+    else {
+      const p = findParent(node.id);
+      const i = p.children.findIndex(c => c.id === node.id);
+      p.children.splice(mode === "before" ? i : i + 1, 0, dragNode);
+    }
+    render(); touch();
+  });
+
+  /* body */
+  if (node.type === "article" && !node.collapsed) {
+    const card = document.createElement("div");
+    card.className = "cardbody";
+    const fmt = document.createElement("div");
+    fmt.className = "fmt";
+    const fbtn = (txt, title, fn) => { const x = document.createElement("button"); x.innerHTML = txt; x.title = title; x.addEventListener("mousedown", e => e.preventDefault()); x.onclick = fn; return x; };
+    fmt.appendChild(fbtn("<b>B</b>", "粗體", () => document.execCommand("bold")));
+    fmt.appendChild(fbtn("<i>I</i>", "斜體", () => document.execCommand("italic")));
+    fmt.appendChild(fbtn("<u>U</u>", "底線", () => document.execCommand("underline")));
+    fmt.appendChild(fbtn("•", "項目符號", () => document.execCommand("insertUnorderedList")));
+    fmt.appendChild(fbtn("⇥", "增加縮排", () => document.execCommand("indent")));
+    fmt.appendChild(fbtn("⇤", "減少縮排", () => document.execCommand("outdent")));
+    const cbtn = fbtn("◩", "文字顏色", function (e) { e.stopPropagation(); showPalette(this, c => { document.execCommand("foreColor", false, c); }); });
+    cbtn.dataset.pal = "1";
+    fmt.appendChild(cbtn);
+    card.appendChild(fmt);
+    const rt = document.createElement("div");
+    rt.className = "rt";
+    rt.contentEditable = "true";
+    rt.spellcheck = false;
+    rt.innerHTML = node.content || "";
+    rt.addEventListener("input", () => { node.content = rt.innerHTML; touch(); });
+    card.appendChild(rt);
+    wrap.appendChild(card);
+  }
+  if (node.type === "folder" && !node.collapsed && (node.children || []).length) {
+    const ch = document.createElement("div");
+    ch.className = "children";
+    for (const c of node.children) ch.appendChild(renderNode(c));
+    wrap.appendChild(ch);
+  }
+  return wrap;
+}
+
+/* ================= settings ================= */
+function applySettings() {
+  const s = state.settings;
+  document.documentElement.style.setProperty("--font", `'${s.font}','PingFang TC',-apple-system,sans-serif`);
+  document.documentElement.style.setProperty("--size", s.size + "px");
+  document.documentElement.style.setProperty("--indent", s.indent + "px");
+  document.documentElement.style.setProperty("--line", s.line);
+  document.documentElement.style.setProperty("--line-dim", `color-mix(in srgb, ${s.line} 35%, transparent)`);
+  document.documentElement.style.setProperty("--cardw", s.cardw >= 9999 ? "100%" : s.cardw + "px");
+  document.getElementById("selFont").value = s.font;
+  document.getElementById("selSize").value = s.size;
+  document.getElementById("selIndent").value = s.indent;
+  document.getElementById("selCardW").value = s.cardw;
+  document.getElementById("btnBorder").style.background = s.line;
+  document.getElementById("appTitle").textContent = state.appTitle;
+}
+document.getElementById("selFont").onchange = e => { state.settings.font = e.target.value; applySettings(); touch(); };
+document.getElementById("selSize").onchange = e => { state.settings.size = +e.target.value; applySettings(); touch(); };
+document.getElementById("selIndent").onchange = e => { state.settings.indent = +e.target.value; applySettings(); touch(); };
+document.getElementById("selCardW").onchange = e => { state.settings.cardw = +e.target.value; applySettings(); touch(); };
+document.getElementById("btnBorder").onclick = function (e) { e.stopPropagation(); showPalette(this, c => { state.settings.line = c; applySettings(); touch(); }); };
+document.getElementById("btnBorder").dataset.pal = "1";
+document.getElementById("appTitle").addEventListener("input", e => { state.appTitle = e.target.textContent; touch(); });
+
+document.getElementById("ctlToggle").onclick = () => {
+  const c = document.getElementById("ctl");
+  c.classList.toggle("hidden");
+  document.getElementById("ctlToggle").textContent = c.classList.contains("hidden") ? "控制 ▴" : "控制 ▾";
+};
+
+/* expand/collapse levels */
+document.querySelectorAll("[data-exp]").forEach(b => b.onclick = () => {
+  const n = +b.dataset.exp;
+  (function walk(node, d) {
+    node.collapsed = d >= n && !(node === state.root && n === 0 ? false : false);
+    if (node === state.root && n === 0) node.collapsed = true;
+    if (node === state.root && n > 0) node.collapsed = false;
+    (node.children || []).forEach(c => walk(c, d + 1));
+  })(state.root, 0);
+  render(); touch();
+});
+
+/* ================= IndexedDB ================= */
+function idb() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open("smartnotes", 1);
+    r.onupgradeneeded = () => r.result.createObjectStore("kv");
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+async function idbSet(k, v) { const db = await idb(); return new Promise((res, rej) => { const t = db.transaction("kv", "readwrite"); t.objectStore("kv").put(v, k); t.oncomplete = res; t.onerror = () => rej(t.error); }); }
+async function idbGet(k) { const db = await idb(); return new Promise((res, rej) => { const t = db.transaction("kv", "readonly"); const q = t.objectStore("kv").get(k); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); }
+
+/* ================= sync ================= */
+const dot = document.getElementById("dot");
+function setDot(c, title) { dot.className = c; dot.title = title || c; }
+let syncTimer = null, retryTimer = null;
+function touch() {
+  idbSet("current", JSON.parse(JSON.stringify(state))).catch(() => {});
+  setDot("gold", "同步中 syncing");
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(pushCloud, 1500);
+}
+async function pushCloud() {
+  clearTimeout(retryTimer);
+  try {
+    const res = await fetch(`${SB_URL}/rest/v1/${SB_TABLE}?on_conflict=id`, {
+      method: "POST",
+      headers: { ...SB_HEADERS, "Prefer": "resolution=merge-duplicates" },
+      body: JSON.stringify({ id: state.docId, title: state.root.name, data: state, updated_at: new Date().toISOString() })
+    });
+    if (!res.ok) throw new Error(await res.text());
+    localStorage.setItem("smartnotes.lastDocId", state.docId);
+    setDot("green", "已同步 synced");
+  } catch (err) {
+    console.warn("sync failed", err);
+    setDot("red", "同步失敗,5 秒後重試 retrying");
+    retryTimer = setTimeout(pushCloud, 5000);
+  }
+}
+async function loadCloud(docId) {
+  const q = docId
+    ? `${SB_URL}/rest/v1/${SB_TABLE}?id=eq.${encodeURIComponent(docId)}&select=data&limit=1`
+    : `${SB_URL}/rest/v1/${SB_TABLE}?select=data&order=updated_at.desc&limit=1`;
+  const res = await fetch(q, { headers: SB_HEADERS });
+  if (!res.ok) throw new Error(await res.text());
+  const rows = await res.json();
+  return rows.length ? rows[0].data : null;
+}
+async function boot() {
+  setDot("gold", "載入中 loading");
+  const last = localStorage.getItem("smartnotes.lastDocId");
+  try {
+    const cloud = (await loadCloud(last)) || (last ? await loadCloud(null) : null);
+    if (cloud && cloud.root) { state = cloud; render(); setDot("green", "已同步 synced"); return; }
+  } catch (e) { console.warn("cloud unavailable", e); }
+  try {
+    const local = await idbGet("current");
+    if (local && local.root) { state = local; render(); setDot("red", "僅本機 local only"); pushCloud(); return; }
+  } catch (e) {}
+  state = freshState(); render(); setDot("green", "新檔 fresh");
+}
+
+/* ================= file save helper ================= */
+async function saveFile(filename, content, mime) {
+  const blob = content instanceof Blob ? content : new Blob([content], { type: mime });
+  if (window.showSaveFilePicker) {
+    try {
+      const h = await showSaveFilePicker({ suggestedName: filename });
+      const w = await h.createWritable(); await w.write(blob); await w.close(); return;
+    } catch (e) { if (e.name === "AbortError") return; }
+  }
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = filename; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+
+/* ================= html -> markdown ================= */
+function htmlToMd(html) {
+  const box = document.createElement("div"); box.innerHTML = html || "";
+  function inline(node) {
+    let out = "";
+    node.childNodes.forEach(n => {
+      if (n.nodeType === 3) out += n.textContent;
+      else if (n.nodeType === 1) {
+        const t = n.tagName.toLowerCase();
+        if (t === "b" || t === "strong") out += "**" + inline(n) + "**";
+        else if (t === "i" || t === "em") out += "*" + inline(n) + "*";
+        else if (t === "br") out += "\n";
+        else if (t === "ul" || t === "ol") out += "\n" + list(n, 0);
+        else if (t === "div" || t === "p") out += "\n" + inline(n);
+        else out += inline(n);
+      }
+    });
+    return out;
+  }
+  function list(ul, depth) {
+    let out = "";
+    ul.childNodes.forEach(li => {
+      if (li.nodeType !== 1 || li.tagName.toLowerCase() !== "li") return;
+      let text = "", subs = "";
+      li.childNodes.forEach(n => {
+        if (n.nodeType === 1 && (n.tagName.toLowerCase() === "ul" || n.tagName.toLowerCase() === "ol")) subs += list(n, depth + 1);
+        else text += n.nodeType === 3 ? n.textContent : inline(n);
+      });
+      out += "  ".repeat(depth) + "- " + text.trim() + "\n" + subs;
+    });
+    return out;
+  }
+  return inline(box).replace(/\n{3,}/g, "\n\n").trim();
+}
+const plain = html => { const d = document.createElement("div"); d.innerHTML = html || ""; return d.textContent.replace(/\s+/g, " ").trim(); };
+
+/* ================= exports ================= */
+document.getElementById("btnExportJson").onclick = () =>
+  saveFile(fileBase() + ".json", JSON.stringify(state, null, 2), "application/json");
+
+document.getElementById("btnExportMd").onclick = () => {
+  let md = "";
+  (function walk(node, depth) {
+    if (node.type === "folder") {
+      md += "#".repeat(Math.min(depth, 6)) + " " + node.name + "\n\n";
+      (node.children || []).forEach(c => walk(c, depth + 1));
+    } else {
+      md += "**" + node.name + "**\n\n" + htmlToMd(node.content) + "\n\n";
+    }
+  })(state.root, 1);
+  saveFile(fileBase() + ".md", md, "text/markdown");
+};
+
+document.getElementById("btnExportHtml").onclick = () => {
+  const s = state.settings;
+  function nodeHtml(node) {
+    if (node.type === "folder") {
+      return `<details open><summary>${esc(node.name)}</summary><div class="ch">` +
+        (node.children || []).map(nodeHtml).join("") + `</div></details>`;
+    }
+    return `<details open class="art"><summary>${esc(node.name)}</summary><div class="card">${node.content || ""}</div></details>`;
+  }
+  const doc = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${esc(state.root.name)}</title><style>
+body{background:#0f0e0b;color:#e9e3d2;font-family:'${s.font}','PingFang TC',sans-serif;font-size:${s.size}px;line-height:1.35;padding:16px}
+summary{cursor:pointer;color:${s.line};font-weight:600;padding:1px 0}
+details.art>summary{color:#e9e3d2;font-weight:400}
+.ch{margin-left:${s.indent}px;border-left:1px solid ${s.line}33;padding-left:8px}
+.card{max-width:${s.cardw >= 9999 ? "100%" : s.cardw + "px"};border:1px solid ${s.line}59;border-radius:7px;margin:3px 0 5px;padding:5px 8px;background:#14130f}
+ul{margin-left:${s.indent}px}
+</style></head><body><h2 style="color:${s.line};letter-spacing:.1em">${esc(state.appTitle)}</h2>${nodeHtml(state.root)}</body></html>`;
+  saveFile(fileBase() + ".html", doc, "text/html");
+};
+
+document.getElementById("btnExportOkf").onclick = async () => {
+  const zip = new JSZip();
+  const safe = n => (n || "untitled").replace(/[\\/:*?"<>|]/g, "_").trim();
+  function walk(node, folder) {
+    for (const c of node.children || []) {
+      if (c.type === "folder") walk(c, folder.folder(safe(c.name)));
+      else {
+        const body = htmlToMd(c.content);
+        const desc = plain(c.content).slice(0, 150);
+        const fm = `---\ntype: article\ntitle: "${(c.name || "").replace(/"/g, '\\"')}"\ndescription: "${desc.replace(/"/g, '\\"')}"\ntags: []\ntimestamp: ${new Date().toISOString()}\n---\n\n`;
+        folder.file(safe(c.name) + ".md", fm + "# " + c.name + "\n\n" + body + "\n");
+      }
+    }
+  }
+  walk(state.root, zip.folder(safe(state.root.name)));
+  const blob = await zip.generateAsync({ type: "blob" });
+  saveFile(fileBase() + " OKF.zip", blob, "application/zip");
+};
+
+document.getElementById("btnImportJson").onclick = () => document.getElementById("fileInput").click();
+document.getElementById("fileInput").addEventListener("change", e => {
+  const f = e.target.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = () => {
+    try {
+      const data = JSON.parse(r.result);
+      if (!data.root || !data.root.type) throw new Error("非本應用的 JSON 格式");
+      state = data;
+      if (!state.docId) state.docId = uid();
+      render(); touch();
+    } catch (err) { alert("匯入失敗: " + err.message); }
+  };
+  r.readAsText(f);
+  e.target.value = "";
+});
+
+document.getElementById("btnReset").onclick = () => {
+  if (!confirm("清除所有內容並重新開始?(雲端舊檔仍保留)")) return;
+  state = freshState(); render(); touch();
+};
+
+/* ================= supabase file list ================= */
+const modal = document.getElementById("modal");
+modal.addEventListener("click", e => { if (e.target === modal) modal.style.display = "none"; });
+document.getElementById("btnFiles").onclick = async () => {
+  const list = document.getElementById("fileList");
+  list.innerHTML = "<div class='item'><small>載入中…</small></div>";
+  modal.style.display = "flex";
+  try {
+    const res = await fetch(`${SB_URL}/rest/v1/${SB_TABLE}?select=id,title,updated_at&order=updated_at.desc`, { headers: SB_HEADERS });
+    if (!res.ok) throw new Error(await res.text());
+    const rows = await res.json();
+    list.innerHTML = rows.length ? "" : "<div class='item'><small>雲端沒有檔案</small></div>";
+    rows.forEach(row => {
+      const d = document.createElement("div");
+      d.className = "item";
+      d.innerHTML = `<span>${esc(row.title || "(未命名)")}</span><small>${new Date(row.updated_at).toLocaleString()}</small>`;
+      d.onclick = async () => {
+        modal.style.display = "none";
+        try {
+          const data = await loadCloud(row.id);
+          if (data && data.root) {
+            state = data;
+            localStorage.setItem("smartnotes.lastDocId", state.docId);
+            render(); setDot("green", "已同步 synced");
+            idbSet("current", JSON.parse(JSON.stringify(state))).catch(() => {});
+          }
+        } catch (err) { alert("載入失敗: " + err.message); }
+      };
+      list.appendChild(d);
+    });
+  } catch (err) {
+    list.innerHTML = `<div class='item'><small>讀取失敗: ${esc(err.message).slice(0, 200)}</small></div>`;
+  }
+};
+
+/* ================= boot ================= */
+render();
+boot();
+</script>
+</body>
+</html>
